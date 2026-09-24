@@ -8,12 +8,15 @@
 #include <Fonts/FreeMonoBold9pt7b.h>
 
 #include "config.h"
+#include "transit_types.h"
 
 // --- DISPLAY HARDWARE CONSTRUCTOR MAP ---
 // Maps to the pin layout: CS=5, DC=17, RST=16, BUSY=4
 GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
   GxEPD2_420_GDEY042T81(/*CS=*/ 5, /*DC=*/ 17, /*RST=*/ 16, /*BUSY=*/ 4)
 );
+
+
 
 
 void setup() {
@@ -81,7 +84,8 @@ void bootUpText()
 
 }
 
-void loop() {
+
+void getArrivalTimes(RouteTracker Routes){
   HTTPClient http;
   http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid +"&top=4&format=json");
 
@@ -91,6 +95,8 @@ void loop() {
   if (httpCode > 0) {
     Serial.print("Success:");
     Serial.println(httpCode);
+
+    Serial.println("Downloading Payload");
     String payload = http.getString();
 
     DynamicJsonDocument doc(4096);
@@ -101,21 +107,8 @@ void loop() {
       Serial.println(error.c_str());
     } else {
       JsonArray predictions = doc["bustime-response"]["prd"];
-
-      display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
-      display.setRotation(0);
-      display.setFont(&FreeMonoBold9pt7b);
-      display.setTextColor(GxEPD_BLACK);
-
-      int16_t tbx, tby; uint16_t tbw, tbh;
-
-      display.setFullWindow();
-      display.firstPage();
-      do {
-        display.fillScreen(GxEPD_WHITE);
-        uint16_t y = 15;
-
-        for (JsonObject prd : predictions) {
+      
+      for (JsonObject prd : predictions) {
           const char* route = prd["rt"];
           const char* dest = prd["des"];
           const char* countdown = prd["prdctdn"];
@@ -125,18 +118,11 @@ void loop() {
             snprintf(line, sizeof(line), "R%s %s DUE", route, dest);
           } else {
             snprintf(line, sizeof(line), "R%s %s %sm", route, dest, countdown);
-          }
-
-          display.getTextBounds(line, 0, 0, &tbx, &tby, &tbw, &tbh);
-          uint16_t x = ((display.width() - tbw) / 2) - tbx;
-
-          display.setCursor(x, y);
-          display.print(line);
-          y += 15;
         }
-      } while (display.nextPage());
 
-      display.hibernate();
+        Serial.println(line);
+
+      }
     }
   } else {
     Serial.print("Error:");
@@ -144,5 +130,73 @@ void loop() {
   }
 
   http.end();
-  delay(300000);
+}
+
+
+
+
+
+void loop() {
+  getArrivalTimes();
+  Serial.println("Well HIYA!");
+
+  // if (httpCode > 0) {
+  //   Serial.print("Success:");
+  //   Serial.println(httpCode);
+  //   String payload = http.getString();
+
+  //   DynamicJsonDocument doc(4096);
+  //   DeserializationError error = deserializeJson(doc, payload);
+
+  //   if (error) {
+  //     Serial.print("JSON parse failed: ");
+  //     Serial.println(error.c_str());
+  //   } else {
+  //     JsonArray predictions = doc["bustime-response"]["prd"];
+
+  //     display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
+  //     display.setRotation(0);
+  //     display.setFont(&FreeMonoBold9pt7b);
+  //     display.setTextColor(GxEPD_BLACK);
+
+  //     int16_t tbx, tby; uint16_t tbw, tbh;
+
+  //     display.setFullWindow();
+  //     display.firstPage();
+  //     do {
+  //       display.fillScreen(GxEPD_WHITE);
+  //       uint16_t y = 15;
+
+  //       for (JsonObject prd : predictions) {
+  //         const char* route = prd["rt"];
+  //         const char* dest = prd["des"];
+  //         const char* countdown = prd["prdctdn"];
+
+  //         char line[30];
+  //         if (strcmp(countdown, "DUE") == 0) {
+  //           snprintf(line, sizeof(line), "R%s %s DUE", route, dest);
+  //         } else {
+  //           snprintf(line, sizeof(line), "R%s %s %sm", route, dest, countdown);
+  //         }
+
+  //         display.getTextBounds(line, 0, 0, &tbx, &tby, &tbw, &tbh);
+  //         uint16_t x = ((display.width() - tbw) / 2) - tbx;
+
+  //         display.setCursor(x, y);
+  //         display.print(line);
+  //         y += 15;
+  //       }
+  //     } while (display.nextPage());
+
+  //     display.hibernate();
+  //   }
+  // } else {
+  //   Serial.print("Error:");
+  //   Serial.println(httpCode);
+  // }
+
+  // http.end();
+  // delay(300000);
+
+  return;
 }
