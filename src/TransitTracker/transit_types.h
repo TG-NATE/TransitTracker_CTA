@@ -4,8 +4,9 @@
 #include <Arduino.h>
 
 struct RouteTracker {
-  const char* lineName;
-  String arrivals[5];
+  String lineName;
+  String arrivals[10]; // Make and arrival struct direction, name, etc
+  int arrivalCount = 0;
 };
 
 #endif
