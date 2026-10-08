@@ -75,7 +75,7 @@ src/
 
 C++ (Arduino framework), ESP32, HTTP/REST API calls, JSON parsing, GxEPD2 e-ink display driver.
 
-## License
-
-Released under the GPL-3.0 license. See `LICENSE` for details.
+<!--## License-->
+<!---->
+<!--Released under the GPL-3.0 license. See `LICENSE` for details.-->
 
