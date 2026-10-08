@@ -86,6 +86,13 @@ void bootUpText() {
 
 
 void getArrivalTimes(RouteTracker Routes[]) {
+  //Clean Route array
+  for (int i = 0; i < 12; i++) {
+    Routes[i] = RouteTracker();
+  }
+
+
+
   HTTPClient http;
   http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&top=4&format=json");
 
@@ -113,22 +120,25 @@ void getArrivalTimes(RouteTracker Routes[]) {
         const char* route = prd["rt"];
         const char* dest = prd["des"];
         const char* countdown = prd["prdctdn"];
+        const char* dir = prd["rtdir"];
 
-        char line[30];
+        char line[35];
         if (strcmp(countdown, "DUE") == 0) {
-          snprintf(line, sizeof(line), "R%s %s DUE", route, dest);
+          snprintf(line, sizeof(line), "R%s %s %s DUE", route, dest, dir);
         } else {
-          snprintf(line, sizeof(line), "R%s %s %sm", route, dest, countdown);
+          snprintf(line, sizeof(line), "R%s %s %s %sm", route, dest, dir, countdown);
         }
 
         //RouteMap
-        int arrivalCount = 0;
-
         auto i = busIndexMap.find(route);
         if (i != busIndexMap.end()) {
           int value = i->second;
-          Serial.print("Key Found again: ");
+          Serial.print("Key Found for route: ");
           Serial.println(route);
+          Routes[value].arrivals[Routes[value].arrivalCount] = line;
+          Routes[value].arrivalCount += 1;
+
+
         } else {
           if (map_index < 12) {
             busIndexMap.insert({ route, map_index });
@@ -140,10 +150,6 @@ void getArrivalTimes(RouteTracker Routes[]) {
             Serial.println("Routes array full");
           }
         }
-
-        // int arrivalCount = Routes[route].arrivalCount;
-        // Routes[route].arrivals[arrivalCount] = line;
-        // Routes[route].arrivalCount += 1;
       }
     }
   } else {
@@ -156,81 +162,40 @@ void getArrivalTimes(RouteTracker Routes[]) {
 
 
 
-
 void loop() {
-  Serial.println("Well HIYA!");
-  Serial.print("Free heap: ");
-  Serial.println(ESP.getFreeHeap());
 
   getArrivalTimes(RetrievedRoutes);
 
-  for (int i = 0; i < map_index; i++) {
-    Serial.println(RetrievedRoutes[i].arrivals[0]);
-  }
+  display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
+  display.setRotation(0);
+  display.setFont(&FreeMonoBold9pt7b);
+  display.setTextColor(GxEPD_BLACK);
 
+  int16_t tbx, tby;
+  uint16_t tbw, tbh;
 
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    uint16_t y = 15;
+
+    for (RouteTracker route : RetrievedRoutes) {
+      for (int i = 0; i < route.arrivalCount; i++) {
+        Serial.println(route.arrivals[i]);
+        display.getTextBounds(route.arrivals[i], 0, 0, &tbx, &tby, &tbw, &tbh);
+        uint16_t x = ((display.width() - tbw) / 2) - tbx;
+
+        display.setCursor(x, y);
+        display.print(route.arrivals[i]);
+        y += 15;
+      }
+    }
+
+  } while (display.nextPage());
+
+  display.hibernate();
   busIndexMap.clear();
   map_index = 0;
-
-
-
-  // if (httpCode > 0) {
-  //   Serial.print("Success:");
-  //   Serial.println(httpCode);
-  //   String payload = http.getString();
-
-  //   DynamicJsonDocument doc(4096);
-  //   DeserializationError error = deserializeJson(doc, payload);
-
-  //   if (error) {
-  //     Serial.print("JSON parse failed: ");
-  //     Serial.println(error.c_str());
-  //   } else {
-  //     JsonArray predictions = doc["bustime-response"]["prd"];
-
-  //     display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
-  //     display.setRotation(0);
-  //     display.setFont(&FreeMonoBold9pt7b);
-  //     display.setTextColor(GxEPD_BLACK);
-
-  //     int16_t tbx, tby; uint16_t tbw, tbh;
-
-  //     display.setFullWindow();
-  //     display.firstPage();
-  //     do {
-  //       display.fillScreen(GxEPD_WHITE);
-  //       uint16_t y = 15;
-
-  //       for (JsonObject prd : predictions) {
-  //         const char* route = prd["rt"];
-  //         const char* dest = prd["des"];
-  //         const char* countdown = prd["prdctdn"];
-
-  //         char line[30];
-  //         if (strcmp(countdown, "DUE") == 0) {
-  //           snprintf(line, sizeof(line), "R%s %s DUE", route, dest);
-  //         } else {
-  //           snprintf(line, sizeof(line), "R%s %s %sm", route, dest, countdown);
-  //         }
-
-  //         display.getTextBounds(line, 0, 0, &tbx, &tby, &tbw, &tbh);
-  //         uint16_t x = ((display.width() - tbw) / 2) - tbx;
-
-  //         display.setCursor(x, y);
-  //         display.print(line);
-  //         y += 15;
-  //       }
-  //     } while (display.nextPage());
-
-  //     display.hibernate();
-  //   }
-  // } else {
-  //   Serial.print("Error:");
-  //   Serial.println(httpCode);
-  // }
-
-  // http.end();
   delay(180000);
-
-  return;
 }
