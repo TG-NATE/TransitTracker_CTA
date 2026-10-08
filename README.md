@@ -49,7 +49,7 @@ Create a file named `config.h` in the sketch folder with your own values:
 const char* ssid = "YOUR_WIFI_NAME";
 const char* password = "YOUR_WIFI_PASSWORD";
 const char* busAPIKey = "YOUR_CTA_API_KEY";
-const char* stopid = "1593,18318";  // comma-separated CTA stop IDs
+const char* stopid = "YOUR_STOP_ID";  // comma-separated CTA stop IDs
 
 #endif
 ```
