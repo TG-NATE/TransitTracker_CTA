@@ -94,7 +94,7 @@ void getArrivalTimes(RouteTracker Routes[]) {
   int httpCode = http.GET();
   Serial.println(httpCode);
 
-  if (httpCode > 0) {
+  if (httpCode == HTTP_CODE_OK) {
     Serial.print("Success:");
     Serial.println(httpCode);
 
@@ -111,6 +111,11 @@ void getArrivalTimes(RouteTracker Routes[]) {
       Serial.println("Previous call data will be used if stored");
 
     } else {
+      if (!doc["bustime-response"]["prd"].is<JsonArray>()){
+        Serial.println(doc["bustime-response"]["error"][0]["msg"].as<const char*>());
+        Serial.println("Previous call data will be used if stored");
+        return;
+      }
 
       //Clean Route array
       for (int i = 0; i < 12; i++) {
@@ -146,8 +151,8 @@ void getArrivalTimes(RouteTracker Routes[]) {
             Routes[value].arrivals[Routes[value].arrivalCount] = line;
             Routes[value].arrivalCount += 1;
           }else{
-            Serial.println("Route is full, skipping arrival for: ");
-            Serial.print(route);
+            Serial.print("Route is full, skipping arrival for: ");
+            Serial.println(route);
           }
 
 
