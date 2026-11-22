@@ -201,7 +201,7 @@ void loop() {
     display.fillScreen(GxEPD_WHITE);
     uint16_t y = 15;
 
-    for (RouteTracker route : RetrievedRoutes) {
+    for (const RouteTracker& route : RetrievedRoutes) {
       for (int i = 0; i < route.arrivalCount; i++) {
         Serial.println(route.arrivals[i]);
         display.getTextBounds(route.arrivals[i], 0, 0, &tbx, &tby, &tbw, &tbh);
