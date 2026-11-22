@@ -97,7 +97,7 @@ void getArrivalTimes(RouteGroup Routes[]) {
 
   //Use Mozila root CA Bundle to verify CTA Bus Tracker API link. ESP32 core 4 refuses connection with out this.
   http.useBuiltinCACertBundle();
-  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&top=10&format=json");
+  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&format=json");
 
   int httpCode = http.GET();
   Serial.println(httpCode);
