@@ -19,7 +19,6 @@ GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
 
 RouteTracker RetrievedRoutes[12] = {};
 std::unordered_map<std::string, int> busIndexMap;
-int map_index = 0;
 
 
 void setup() {
@@ -86,16 +85,6 @@ void bootUpText() {
 
 
 void getArrivalTimes(RouteTracker Routes[]) {
-  //Clean Route array
-  for (int i = 0; i < 12; i++) {
-    Routes[i] = RouteTracker();
-  }
-
-  //Clear index map.
-  busIndexMap.clear();
-
-
-
   HTTPClient http;
 
   //Use Mozila root CA Bundle to verify CTA Bus Tracker API link. ESP32 core 4 refuses connection with out this.
@@ -120,8 +109,6 @@ void getArrivalTimes(RouteTracker Routes[]) {
       Serial.print("JSON parse failed: ");
       Serial.println(error.c_str());
       Serial.println("Previous call data will be used if stored");
-
-      http.end();
 
     } else {
 
@@ -160,17 +147,17 @@ void getArrivalTimes(RouteTracker Routes[]) {
             Routes[value].arrivalCount += 1;
           }else{
             Serial.println("Route is full, skipping arrival for: ");
-            Serial.println(route);
+            Serial.print(route);
           }
 
 
         } else {
-          if (map_index < 12) {
-            busIndexMap.insert({ route, map_index });
-            Routes[map_index].lineName = String(route);
-            Routes[map_index].arrivals[0] = line;
-            Routes[map_index].arrivalCount = 1;
-            map_index += 1;
+          int slot = busIndexMap.size();
+          if (slot < 12) {
+            busIndexMap.insert({ route, slot });
+            Routes[slot].lineName = String(route);
+            Routes[slot].arrivals[0] = line;
+            Routes[slot].arrivalCount = 1;
           } else {
             Serial.println("Routes array full");
           }
@@ -222,6 +209,5 @@ void loop() {
   } while (display.nextPage());
 
   display.hibernate();
-  map_index = 0;
   delay(180000);
 }
