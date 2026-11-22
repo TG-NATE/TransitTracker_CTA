@@ -102,8 +102,15 @@ void getArrivalTimes(RouteTracker Routes[]) {
     String payload = http.getString();
     http.end();
 
-    DynamicJsonDocument doc(4096);
-    DeserializationError error = deserializeJson(doc, payload);
+    JsonDocument filter;
+    filter["bustime-response"]["prd"][0]["rt"] = true;
+    filter["bustime-response"]["prd"][0]["des"] = true;
+    filter["bustime-response"]["prd"][0]["prdctdn"] = true;
+    filter["bustime-response"]["prd"][0]["rtdir"] = true;
+    filter["bustime-response"]["error"][0]["msg"] = true;
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 
     if (error) {
       Serial.print("JSON parse failed: ");
@@ -112,7 +119,7 @@ void getArrivalTimes(RouteTracker Routes[]) {
 
     } else {
       if (!doc["bustime-response"]["prd"].is<JsonArray>()){
-        Serial.println(doc["bustime-response"]["error"][0]["msg"].as<const char*>());
+        Serial.println(doc["bustime-response"]["error"][0]["msg"] | " ");
         Serial.println("Previous call data will be used if stored");
         return;
       }
@@ -128,10 +135,10 @@ void getArrivalTimes(RouteTracker Routes[]) {
       JsonArray predictions = doc["bustime-response"]["prd"];
 
       for (JsonObject prd : predictions) {
-        const char* route = prd["rt"];
-        const char* dest = prd["des"];
-        const char* countdown = prd["prdctdn"];
-        const char* dir = prd["rtdir"];
+        const char* route = prd["rt"] | " ";
+        const char* dest = prd["des"] | " ";
+        const char* countdown = prd["prdctdn"] | " ";
+        const char* dir = prd["rtdir"] | " ";
 
         char line[35];
         if (strcmp(countdown, "DUE") == 0) {
