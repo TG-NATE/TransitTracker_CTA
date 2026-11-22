@@ -91,10 +91,13 @@ void getArrivalTimes(RouteTracker Routes[]) {
     Routes[i] = RouteTracker();
   }
 
+  //Clear index map.
+  busIndexMap.clear();
+
 
 
   HTTPClient http;
-  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&top=4&format=json");
+  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&top=10&format=json");
 
   int httpCode = http.GET();
   Serial.println(httpCode);
@@ -113,7 +116,20 @@ void getArrivalTimes(RouteTracker Routes[]) {
     if (error) {
       Serial.print("JSON parse failed: ");
       Serial.println(error.c_str());
+      Serial.println("Previous call data will be used if stored");
+
+      http.end();
+
     } else {
+
+      //Clean Route array
+      for (int i = 0; i < 12; i++) {
+        Routes[i] = RouteTracker();
+      }
+
+      //Clear index map.
+      busIndexMap.clear();
+
       JsonArray predictions = doc["bustime-response"]["prd"];
 
       for (JsonObject prd : predictions) {
@@ -155,6 +171,9 @@ void getArrivalTimes(RouteTracker Routes[]) {
   } else {
     Serial.print("Error:");
     Serial.println(httpCode);
+
+    
+    Serial.println("Previous call data will be used if stored");
   }
 }
 
@@ -163,7 +182,6 @@ void getArrivalTimes(RouteTracker Routes[]) {
 
 
 void loop() {
-
   getArrivalTimes(RetrievedRoutes);
 
   display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
@@ -195,7 +213,6 @@ void loop() {
   } while (display.nextPage());
 
   display.hibernate();
-  busIndexMap.clear();
   map_index = 0;
   delay(180000);
 }
