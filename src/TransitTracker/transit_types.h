@@ -4,16 +4,18 @@
 #include <Arduino.h>
 
 constexpr int MAX_ARRIVALS = 3;
+constexpr int MAX_ROUTES = 12;
 
-struct Arrivals {
-  String dir;
-  int countdown;
+struct Arrival {
+  bool isDue = false; // If isDue is true, countdown is 0.
+  int countdown = 0;
 };
 
-struct RouteTracker {
-  String lineName;
-  String arrivals[MAX_ARRIVALS]; // Make an arrival struct direction, name, etc
-  Arrivals AA[MAX_ARRIVALS]; 
+struct RouteGroup {
+  String route;
+  String direction;
+  String destination;
+  Arrival arrivals[MAX_ARRIVALS];
   int arrivalCount = 0;
 };
 
