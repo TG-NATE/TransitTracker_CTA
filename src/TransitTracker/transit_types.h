@@ -1,5 +1,5 @@
 #ifndef TRANSIT_TYPES_H
-#define TRANSIT_TYPE_H
+#define TRANSIT_TYPES_H
 
 #include <Arduino.h>
 
