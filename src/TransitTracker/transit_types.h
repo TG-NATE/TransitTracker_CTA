@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+constexpr int MAX_ARRIVALS = 3;
+
 struct Arrivals {
   String dir;
   int countdown;
@@ -10,8 +12,8 @@ struct Arrivals {
 
 struct RouteTracker {
   String lineName;
-  String arrivals[10]; // Make an arrival struct direction, name, etc
-  Arrivals AA[10]; 
+  String arrivals[MAX_ARRIVALS]; // Make an arrival struct direction, name, etc
+  Arrivals AA[MAX_ARRIVALS]; 
   int arrivalCount = 0;
 };
 

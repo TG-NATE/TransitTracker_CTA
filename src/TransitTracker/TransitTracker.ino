@@ -154,8 +154,14 @@ void getArrivalTimes(RouteTracker Routes[]) {
           int value = i->second;
           Serial.print("Key Found for route: ");
           Serial.println(route);
-          Routes[value].arrivals[Routes[value].arrivalCount] = line;
-          Routes[value].arrivalCount += 1;
+
+          if(Routes[value].arrivalCount < MAX_ARRIVALS){
+            Routes[value].arrivals[Routes[value].arrivalCount] = line;
+            Routes[value].arrivalCount += 1;
+          }else{
+            Serial.println("Route is full, skipping arrival for: ");
+            Serial.println(route);
+          }
 
 
         } else {
