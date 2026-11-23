@@ -20,9 +20,15 @@ GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
 RouteGroup RetrievedRoutes[MAX_ROUTES] = {};
 std::unordered_map<std::string, int> busIndexMap;
 
-bool ensureWiFi(unsigned long timeoutMs){
-  if(WiFi.status() == WL_CONNECTED) return true;
-  if(strlen(ssid) == 0 || strlen(password) == 0) return false;
+constexpr unsigned long REFRESH_INTERVAL_MS = 180000UL;
+constexpr unsigned long RETRY_INTERVAL_MS = 30000UL;
+constexpr unsigned long TIMEOUT_INTERVAL_MS = 10000UL;
+unsigned long lastRefreshMs = 0;
+unsigned long nextWaitMs = 0;
+
+bool ensureWiFi(unsigned long timeoutMs) {
+  if (WiFi.status() == WL_CONNECTED) return true;
+  if (strlen(ssid) == 0 || strlen(password) == 0) return false;
 
   WiFi.begin(ssid, password);
   unsigned long start = millis();
@@ -56,15 +62,13 @@ void setup() {
 
   display.hibernate();  // Puts the display into deep sleep to protect its elements
 
-  if(!ensureWiFi(15000)){
+  if (!ensureWiFi(15000)) {
     Serial.println("Offline Mode. Will try to reconnect in loop");
-  }else{
+  } else {
     Serial.println("WiFi connected.");
     Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
-
   }
-
 }
 
 
@@ -138,7 +142,7 @@ bool getArrivalTimes(RouteGroup Routes[]) {
       return false;
 
     } else {
-      if (!doc["bustime-response"]["prd"].is<JsonArray>()){
+      if (!doc["bustime-response"]["prd"].is<JsonArray>()) {
         Serial.println(doc["bustime-response"]["error"][0]["msg"] | " ");
         Serial.println("Previous call data will be used if stored");
         return false;
@@ -169,10 +173,10 @@ bool getArrivalTimes(RouteGroup Routes[]) {
           Serial.print("Key Found for route: ");
           Serial.println(key.c_str());
 
-          if(Routes[value].arrivalCount < MAX_ARRIVALS){
+          if (Routes[value].arrivalCount < MAX_ARRIVALS) {
             Routes[value].arrivals[Routes[value].arrivalCount] = parseArrival(countdown);
             Routes[value].arrivalCount += 1;
-          }else{
+          } else {
             Serial.print("Route is full, skipping arrival for: ");
             Serial.println(route);
           }
@@ -199,14 +203,14 @@ bool getArrivalTimes(RouteGroup Routes[]) {
     Serial.print("Error:");
     Serial.println(httpCode);
 
-    
+
     Serial.println("Previous call data will be used if stored");
     return false;
   }
 }
 
-void drawArrivals(){
-   display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
+void drawArrivals() {
+  display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
   display.setRotation(0);
   display.setFont(&FreeMonoBold9pt7b);
   display.setTextColor(GxEPD_BLACK);
@@ -218,23 +222,23 @@ void drawArrivals(){
     uint16_t y = 15;
 
     for (const RouteGroup& group : RetrievedRoutes) {
-      if(group.arrivalCount == 0) continue;
+      if (group.arrivalCount == 0) continue;
 
       char line[40];
-      int len = snprintf(line, sizeof(line), "%-3.3s %-16.16s %4.1s", 
-        group.route.c_str(), 
-        group.destination.c_str(), 
-        group.direction.c_str());
+      int len = snprintf(line, sizeof(line), "%-3.3s %-16.16s %4.1s",
+                         group.route.c_str(),
+                         group.destination.c_str(),
+                         group.direction.c_str());
 
-      for(int i = 0; i < group.arrivalCount; i++){
-        if(len >= ((int)sizeof(line))) break;
-      
-        const Arrival& a= group.arrivals[i];
+      for (int i = 0; i < group.arrivalCount; i++) {
+        if (len >= ((int)sizeof(line))) break;
+
+        const Arrival& a = group.arrivals[i];
         const char* sep = (i > 0) ? "," : "   ";
 
-        if(a.isDue){
+        if (a.isDue) {
           len += snprintf(line + len, sizeof(line) - len, "%sDUE", sep);
-        }else{
+        } else {
           len += snprintf(line + len, sizeof(line) - len, "%s%d", sep, a.countdown);
         }
       }
@@ -250,20 +254,26 @@ void drawArrivals(){
   display.hibernate();
 }
 
-
-
-
-
 void loop() {
+  bool waitMet = millis() - lastRefreshMs >= nextWaitMs;
 
-  if(!ensureWiFi(10000)){
-    Serial.println("Offline, skipping fetch");
-  }else if(!getArrivalTimes(RetrievedRoutes)){
-    Serial.println("Serial fetch failed. Keeping current screen");
-  }else{
-    drawArrivals();
+  if (waitMet) {
+    if (!ensureWiFi(10000)) {
+      Serial.println("Offline, skipping fetch");
+      Serial.println("Will check again in 40 sec");
+      lastRefreshMs = millis();
+      nextWaitMs = RETRY_INTERVAL_MS + TIMEOUT_INTERVAL_MS;
+    } else if (!getArrivalTimes(RetrievedRoutes)) {
+      Serial.println("Fetch failed. Keeping current screen");
+      Serial.println("Will check again in 30 sec");
+      lastRefreshMs = millis();
+      nextWaitMs = RETRY_INTERVAL_MS;
+
+    } else {
+      drawArrivals();
+      lastRefreshMs = millis();
+      nextWaitMs = REFRESH_INTERVAL_MS;
+      Serial.println("Will check again in 3 min");
+    }
   }
-
-  
-  delay(180000);
 }
