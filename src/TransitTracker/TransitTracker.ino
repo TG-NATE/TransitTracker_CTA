@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <unordered_map>
 #include <string>
+#include <Preferences.h>
 
 //Eink Libs
 #include <GxEPD2_BW.h>
@@ -20,17 +21,30 @@ GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
 RouteGroup RetrievedRoutes[MAX_ROUTES] = {};
 std::unordered_map<std::string, int> busIndexMap;
 
-constexpr unsigned long REFRESH_INTERVAL_MS = 180000UL;
 constexpr unsigned long RETRY_INTERVAL_MS = 30000UL;
 constexpr unsigned long TIMEOUT_INTERVAL_MS = 10000UL;
 unsigned long lastRefreshMs = 0;
 unsigned long nextWaitMs = 0;
 
+Preferences prefs;
+
+struct Settings {
+  String ssid;
+  String password;
+  String stopIds;
+  uint32_t refreshSec;
+};
+
+Settings settings;
+constexpr uint32_t DEFAULT_REFRESH_SEC = 180;
+constexpr uint32_t MIN_REFRESH_SEC = 60;
+constexpr uint32_t MAX_REFRESH_SEC = 900;
+
 bool ensureWiFi(unsigned long timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) return true;
-  if (strlen(ssid) == 0 || strlen(password) == 0) return false;
+  if (strlen(settings.ssid.c_str()) == 0 || strlen(settings.password.c_str()) == 0) return false;
 
-  WiFi.begin(ssid, password);
+  WiFi.begin(settings.ssid, settings.password);
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
     delay(250);
@@ -48,13 +62,16 @@ void setup() {
 
   delay(1000);
 
+  //Load Settings
+  loadSettings();
+
 
   // We start by connecting to a WiFi network
 
   Serial.println();
   Serial.println();
   Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.println(settings.ssid);
 
   display.init(115200, true, 2, false);
 
@@ -69,6 +86,36 @@ void setup() {
     Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
   }
+}
+
+void loadSettings(){
+  //Open the Namespace/storage area
+  bool opened = prefs.begin("tracker", true);
+  if(!opened){
+    Serial.println("No saved settings yet, using config.h defaults");
+  }
+
+  //default values to use if nothing is saved
+  settings.ssid = prefs.getString("ssid", ssid);
+  settings.password = prefs.getString("password", password);
+  settings.stopIds = prefs.getString("stops", stopid);
+  settings.refreshSec = prefs.getUInt("refresh", DEFAULT_REFRESH_SEC);
+
+  //forced reset of refresh sec
+  settings.refreshSec = constrain(settings.refreshSec, MIN_REFRESH_SEC, MAX_REFRESH_SEC);
+
+  //closing namespace
+  prefs.end();
+
+  //print values
+  Serial.print("Settings: ssid=");
+  Serial.print(settings.ssid);
+  Serial.print(" stops=");
+  Serial.print(settings.stopIds);
+  Serial.print(" refresh=");
+  Serial.print(settings.refreshSec);
+  Serial.println("s");
+
 }
 
 
@@ -112,7 +159,7 @@ bool getArrivalTimes(RouteGroup Routes[]) {
 
   //Use Mozila root CA Bundle to verify CTA Bus Tracker API link. ESP32 core 4 refuses connection with out this.
   http.useBuiltinCACertBundle();
-  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&format=json");
+  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + settings.stopIds + "&format=json");
 
   int httpCode = http.GET();
   Serial.println(httpCode);
@@ -260,20 +307,20 @@ void loop() {
   if (waitMet) {
     if (!ensureWiFi(10000)) {
       Serial.println("Offline, skipping fetch");
-      Serial.println("Will check again in 40 sec");
       lastRefreshMs = millis();
       nextWaitMs = RETRY_INTERVAL_MS + TIMEOUT_INTERVAL_MS;
     } else if (!getArrivalTimes(RetrievedRoutes)) {
       Serial.println("Fetch failed. Keeping current screen");
-      Serial.println("Will check again in 30 sec");
       lastRefreshMs = millis();
       nextWaitMs = RETRY_INTERVAL_MS;
-
     } else {
       drawArrivals();
       lastRefreshMs = millis();
-      nextWaitMs = REFRESH_INTERVAL_MS;
-      Serial.println("Will check again in 3 min");
+      nextWaitMs = settings.refreshSec * 1000UL;
     }
+
+    Serial.print("Will check again in ");
+    Serial.print(nextWaitMs/1000UL);
+    Serial.println(" s");
   }
 }
