@@ -26,6 +26,7 @@ constexpr unsigned long TIMEOUT_INTERVAL_MS = 10000UL;
 unsigned long lastRefreshMs = 0;
 unsigned long nextWaitMs = 0;
 
+//NVS Global Vars
 Preferences prefs;
 
 struct Settings {
@@ -39,6 +40,9 @@ Settings settings;
 constexpr uint32_t DEFAULT_REFRESH_SEC = 180;
 constexpr uint32_t MIN_REFRESH_SEC = 60;
 constexpr uint32_t MAX_REFRESH_SEC = 900;
+
+//Reset Button Global Vars
+constexpr unsigned long RESET_HOLD_MS = 3000UL;
 
 bool ensureWiFi(unsigned long timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) return true;
@@ -58,7 +62,7 @@ bool ensureWiFi(unsigned long timeoutMs) {
 
 void setup() {
   Serial.begin(115200);
-  // pinMode(5, OUTPUT);  // set the LED pin mode
+  pinMode(BOOT_PIN, INPUT_PULLUP);
 
   delay(1000);
 
@@ -301,8 +305,31 @@ void drawArrivals() {
   display.hibernate();
 }
 
+bool resetHeld() {
+  if(digitalRead(BOOT_PIN) == HIGH) return false;
+
+  unsigned long start = millis();
+
+  while (digitalRead(BOOT_PIN) == LOW && millis() - start < RESET_HOLD_MS) {
+    delay(10);
+  }
+
+  return digitalRead(BOOT_PIN) == LOW;
+}
+
+void factoryReset() {
+  prefs.begin("tracker", false);
+  prefs.clear();
+  prefs.end();
+  Serial.println("Settings reset. Release BOOT to restart");
+  while (digitalRead(BOOT_PIN) == LOW) delay(10);
+  ESP.restart();
+}
+
 void loop() {
   bool waitMet = millis() - lastRefreshMs >= nextWaitMs;
+
+  if(resetHeld()) factoryReset();
 
   if (waitMet) {
     if (!ensureWiFi(10000)) {
