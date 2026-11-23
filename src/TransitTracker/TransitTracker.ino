@@ -20,6 +20,21 @@ GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
 RouteGroup RetrievedRoutes[MAX_ROUTES] = {};
 std::unordered_map<std::string, int> busIndexMap;
 
+bool ensureWiFi(unsigned long timeoutMs){
+  if(WiFi.status() == WL_CONNECTED) return true;
+  if(strlen(ssid) == 0 || strlen(password) == 0) return false;
+
+  WiFi.begin(ssid, password);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+    delay(250);
+    Serial.print(".");
+    Serial.println();
+  }
+
+  return WiFi.status() == WL_CONNECTED;
+}
+
 
 void setup() {
   Serial.begin(115200);
@@ -41,19 +56,15 @@ void setup() {
 
   display.hibernate();  // Puts the display into deep sleep to protect its elements
 
-  WiFi.begin(ssid, password);
+  if(!ensureWiFi(15000)){
+    Serial.println("Offline Mode. Will try to reconnect in loop");
+  }else{
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
 
-
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
 }
 
 
@@ -92,7 +103,7 @@ Arrival parseArrival(const char* countdown) {
 }
 
 
-void getArrivalTimes(RouteGroup Routes[]) {
+bool getArrivalTimes(RouteGroup Routes[]) {
   HTTPClient http;
 
   //Use Mozila root CA Bundle to verify CTA Bus Tracker API link. ESP32 core 4 refuses connection with out this.
@@ -124,12 +135,13 @@ void getArrivalTimes(RouteGroup Routes[]) {
       Serial.print("JSON parse failed: ");
       Serial.println(error.c_str());
       Serial.println("Previous call data will be used if stored");
+      return false;
 
     } else {
       if (!doc["bustime-response"]["prd"].is<JsonArray>()){
         Serial.println(doc["bustime-response"]["error"][0]["msg"] | " ");
         Serial.println("Previous call data will be used if stored");
-        return;
+        return false;
       }
 
       //Clean Route array
@@ -180,6 +192,8 @@ void getArrivalTimes(RouteGroup Routes[]) {
           }
         }
       }
+
+      return true;
     }
   } else {
     Serial.print("Error:");
@@ -187,17 +201,12 @@ void getArrivalTimes(RouteGroup Routes[]) {
 
     
     Serial.println("Previous call data will be used if stored");
+    return false;
   }
 }
 
-
-
-
-
-void loop() {
-  getArrivalTimes(RetrievedRoutes);
-
-  display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
+void drawArrivals(){
+   display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
   display.setRotation(0);
   display.setFont(&FreeMonoBold9pt7b);
   display.setTextColor(GxEPD_BLACK);
@@ -239,5 +248,22 @@ void loop() {
   } while (display.nextPage());
 
   display.hibernate();
+}
+
+
+
+
+
+void loop() {
+
+  if(!ensureWiFi(10000)){
+    Serial.println("Offline, skipping fetch");
+  }else if(!getArrivalTimes(RetrievedRoutes)){
+    Serial.println("Serial fetch failed. Keeping current screen");
+  }else{
+    drawArrivals();
+  }
+
+  
   delay(180000);
 }
