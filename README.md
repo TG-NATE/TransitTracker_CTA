@@ -87,8 +87,7 @@ src/TransitTracker
 - NVS/Preferences: Stored in NVS so data survives reboot
 - non-blocking timing: used `millis()` to stop the whole program from being blocked
 
-<!--## License-->
-<!---->
-<!--Released under the GPL-3.0 license. See `LICENSE` for details.-->
-<!-- TODO: decide whether to un-comment the License section (LICENSE file is already in the repo). -->
+## License
+Released under the GPL-3.0 license. See `LICENSE` for details.
+
 
