@@ -1,14 +1,15 @@
 # CTA Bus Tracker
 
-A real-time Chicago bus arrival board built on an ESP32 and a 4.2" e-ink display. It pulls live predictions from the CTA Bus Tracker API for the stops you choose, groups them by route, and refreshes the screen every 3 minutes.
+A real-time Chicago bus arrival board built on an ESP32 and a 4.2" e-ink display. It pulls live predictions from the CTA Bus Tracker API for the stops you choose, groups them by route, and refreshes the screen at a configurable interval (default 180 s, constrained 60–900 s).
 
 ## How it works
 
 1. The ESP32 connects to Wi-Fi.
-2. Every cycle it calls the CTA Bus Tracker `getpredictions` endpoint for your configured stop IDs (up to 4 predictions per request).
+2. Every cycle it calls the CTA Bus Tracker `getpredictions` endpoint for your configured stop IDs.
 3. The JSON response is parsed with ArduinoJson, pulling the route, destination, direction, and minutes until arrival for each prediction.
-4. Predictions are grouped by route (up to 12 routes) and drawn as centered text lines, for example `R22 Howard Southbound 5m`. Buses about to arrive show `DUE`.
-5. The display is put into deep sleep between refreshes to protect the panel, and the loop waits 3 minutes before the next update.
+4. Predictions are grouped by route (up to 12 routes) and drawn as left-aligned text lines, for example `22  95th Howard     S   DUE,13,24`. Up to 3 arrivals per route.
+5. The display is put into deep sleep between refreshes to protect the panel, and uses the `millis()` timer to refresh the arrivals at the configured refresh interval.
+6. 30s retry interval when fetching arrivals fail. 10s timeout + 30s retry interval when WiFi connection fails. Old arrivals stay on the screen after a failed fetch.
 
 ## Hardware
 
@@ -32,13 +33,18 @@ A real-time Chicago bus arrival board built on an ESP32 and a 4.2" e-ink display
 ### Requirements
 
 - [Arduino IDE](https://www.arduino.cc/en/software) with the ESP32 board package installed
+- `ESP32 core 4.x`
 - Libraries (install through the Library Manager):
   - `GxEPD2`
   - `Adafruit GFX Library` (provides the fonts)
-  - `ArduinoJson`
+  - `ArduinoJson 7`
 - A free [CTA Bus Tracker API key](https://www.transitchicago.com/developers/bustracker/)
 
 ### Configuration
+
+config.h values are now defaults; Program reads NVS and falls back to config.h as nothing is stored there yet.
+
+In the future values used and saved in the NVS under namespace tracker will hold ssid, password, stops, and refresh const. This will be done in the next phase as BLE setup is worked on. API Keys will remain in config.h and loaded at compile time
 
 Create a file named `config.h` in the sketch folder with your own values:
 
@@ -56,6 +62,10 @@ const char* stopid = "1593,18318";  // comma-separated CTA stop IDs
 
 Find stop IDs on the CTA Bus Tracker site, or from the stop's sign. `config.h` holds your Wi-Fi password and API key, so keep it out of version control (it should be listed in `.gitignore`).
 
+#### Resetting saved settings
+
+To reset saved setting, hold BOOT for 3 s while the board is running to clear NVS and restart. Note: holding BOOT at power-on enters download mode instead.
+
 ### Build and upload
 
 1. Open `TransitTracker.ino` in the Arduino IDE.
@@ -65,17 +75,20 @@ Find stop IDs on the CTA Bus Tracker site, or from the stop's sign. `config.h` h
 ## Project structure
 
 ```
-src/
+src/TransitTracker
   TransitTracker.ino   Main sketch: Wi-Fi, API calls, JSON parsing, display drawing
-  transit_types.h      RouteTracker struct that groups arrivals by route
+  transit_types.h      RouteGroup struct that groups Arrival by route
   config.h             Your Wi-Fi and API settings (not committed)
 ```
 
 ## Tech used
 
-C++ (Arduino framework), ESP32, HTTP/REST API calls, JSON parsing, GxEPD2 e-ink display driver.
+- C++ (Arduino framework), ESP32, JSON parsing, GxEPD2 e-ink display driver, HTTPS with the CA bundle
+- NVS/Preferences: Stored in NVS so data survives reboot
+- non-blocking timing: used `millis()` to stop the whole program from being blocked
 
 <!--## License-->
 <!---->
 <!--Released under the GPL-3.0 license. See `LICENSE` for details.-->
+<!-- TODO: decide whether to un-comment the License section (LICENSE file is already in the repo). -->
 
