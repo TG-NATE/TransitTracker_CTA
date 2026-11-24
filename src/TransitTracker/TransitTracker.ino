@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <unordered_map>
 #include <string>
+#include <Preferences.h>
 
 //Eink Libs
 #include <GxEPD2_BW.h>
@@ -17,16 +18,56 @@
 GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
   GxEPD2_420_GDEY042T81(/*CS=*/5, /*DC=*/17, /*RST=*/16, /*BUSY=*/4));
 
-RouteTracker RetrievedRoutes[12] = {};
+RouteGroup RetrievedRoutes[MAX_ROUTES] = {};
 std::unordered_map<std::string, int> busIndexMap;
-int map_index = 0;
+
+constexpr unsigned long RETRY_INTERVAL_MS = 30000UL;
+constexpr unsigned long TIMEOUT_INTERVAL_MS = 10000UL;
+unsigned long lastRefreshMs = 0;
+unsigned long nextWaitMs = 0;
+
+//NVS Global Vars
+Preferences prefs;
+
+struct Settings {
+  String ssid;
+  String password;
+  String stopIds;
+  uint32_t refreshSec;
+};
+
+Settings settings;
+constexpr uint32_t DEFAULT_REFRESH_SEC = 180;
+constexpr uint32_t MIN_REFRESH_SEC = 60;
+constexpr uint32_t MAX_REFRESH_SEC = 900;
+
+//Reset Button Global Vars
+constexpr unsigned long RESET_HOLD_MS = 3000UL;
+
+bool ensureWiFi(unsigned long timeoutMs) {
+  if (WiFi.status() == WL_CONNECTED) return true;
+  if (strlen(settings.ssid.c_str()) == 0 || strlen(settings.password.c_str()) == 0) return false;
+
+  WiFi.begin(settings.ssid, settings.password);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+    delay(250);
+    Serial.print(".");
+    Serial.println();
+  }
+
+  return WiFi.status() == WL_CONNECTED;
+}
 
 
 void setup() {
   Serial.begin(115200);
-  // pinMode(5, OUTPUT);  // set the LED pin mode
+  pinMode(BOOT_PIN, INPUT_PULLUP);
 
   delay(1000);
+
+  //Load Settings
+  loadSettings();
 
 
   // We start by connecting to a WiFi network
@@ -34,7 +75,7 @@ void setup() {
   Serial.println();
   Serial.println();
   Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.println(settings.ssid);
 
   display.init(115200, true, 2, false);
 
@@ -42,19 +83,43 @@ void setup() {
 
   display.hibernate();  // Puts the display into deep sleep to protect its elements
 
-  WiFi.begin(ssid, password);
+  if (!ensureWiFi(15000)) {
+    Serial.println("Offline Mode. Will try to reconnect in loop");
+  } else {
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+}
 
-
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+void loadSettings(){
+  //Open the Namespace/storage area
+  bool opened = prefs.begin("tracker", true);
+  if(!opened){
+    Serial.println("No saved settings yet, using config.h defaults");
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  //default values to use if nothing is saved
+  settings.ssid = prefs.getString("ssid", ssid);
+  settings.password = prefs.getString("password", password);
+  settings.stopIds = prefs.getString("stops", stopid);
+  settings.refreshSec = prefs.getUInt("refresh", DEFAULT_REFRESH_SEC);
+
+  //forced reset of refresh sec
+  settings.refreshSec = constrain(settings.refreshSec, MIN_REFRESH_SEC, MAX_REFRESH_SEC);
+
+  //closing namespace
+  prefs.end();
+
+  //print values
+  Serial.print("Settings: ssid=");
+  Serial.print(settings.ssid);
+  Serial.print(" stops=");
+  Serial.print(settings.stopIds);
+  Serial.print(" refresh=");
+  Serial.print(settings.refreshSec);
+  Serial.println("s");
+
 }
 
 
@@ -84,22 +149,26 @@ void bootUpText() {
   } while (display.nextPage());  // Executes the dynamic paging drawing loops
 }
 
+Arrival parseArrival(const char* countdown) {
+  Arrival a;
 
-void getArrivalTimes(RouteTracker Routes[]) {
-  //Clean Route array
-  for (int i = 0; i < 12; i++) {
-    Routes[i] = RouteTracker();
-  }
+  a.isDue = (strcmp(countdown, "DUE") == 0);
+  a.countdown = a.isDue ? 0 : atoi(countdown);
+  return a;
+}
 
 
-
+bool getArrivalTimes(RouteGroup Routes[]) {
   HTTPClient http;
-  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + stopid + "&top=4&format=json");
+
+  //Use Mozila root CA Bundle to verify CTA Bus Tracker API link. ESP32 core 4 refuses connection with out this.
+  http.useBuiltinCACertBundle();
+  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + settings.stopIds + "&format=json");
 
   int httpCode = http.GET();
   Serial.println(httpCode);
 
-  if (httpCode > 0) {
+  if (httpCode == HTTP_CODE_OK) {
     Serial.print("Success:");
     Serial.println(httpCode);
 
@@ -107,72 +176,95 @@ void getArrivalTimes(RouteTracker Routes[]) {
     String payload = http.getString();
     http.end();
 
-    DynamicJsonDocument doc(4096);
-    DeserializationError error = deserializeJson(doc, payload);
+    JsonDocument filter;
+    filter["bustime-response"]["prd"][0]["rt"] = true;
+    filter["bustime-response"]["prd"][0]["des"] = true;
+    filter["bustime-response"]["prd"][0]["prdctdn"] = true;
+    filter["bustime-response"]["prd"][0]["rtdir"] = true;
+    filter["bustime-response"]["error"][0]["msg"] = true;
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 
     if (error) {
       Serial.print("JSON parse failed: ");
       Serial.println(error.c_str());
+      Serial.println("Previous call data will be used if stored");
+      return false;
+
     } else {
+      if (!doc["bustime-response"]["prd"].is<JsonArray>()) {
+        Serial.println(doc["bustime-response"]["error"][0]["msg"] | " ");
+        Serial.println("Previous call data will be used if stored");
+        return false;
+      }
+
+      //Clean Route array
+      for (int i = 0; i < MAX_ROUTES; i++) {
+        Routes[i] = RouteGroup();
+      }
+
+      //Clear index map.
+      busIndexMap.clear();
+
       JsonArray predictions = doc["bustime-response"]["prd"];
 
       for (JsonObject prd : predictions) {
-        const char* route = prd["rt"];
-        const char* dest = prd["des"];
-        const char* countdown = prd["prdctdn"];
-        const char* dir = prd["rtdir"];
+        const char* route = prd["rt"] | " ";
+        const char* destination = prd["des"] | " ";
+        const char* countdown = prd["prdctdn"] | " ";
+        const char* direction = prd["rtdir"] | " ";
 
-        char line[35];
-        if (strcmp(countdown, "DUE") == 0) {
-          snprintf(line, sizeof(line), "R%s %s %s DUE", route, dest, dir);
-        } else {
-          snprintf(line, sizeof(line), "R%s %s %s %sm", route, dest, dir, countdown);
-        }
+        std::string key = std::string(route) + "|" + direction;
 
         //RouteMap
-        auto i = busIndexMap.find(route);
+        auto i = busIndexMap.find(key);
         if (i != busIndexMap.end()) {
           int value = i->second;
           Serial.print("Key Found for route: ");
-          Serial.println(route);
-          Routes[value].arrivals[Routes[value].arrivalCount] = line;
-          Routes[value].arrivalCount += 1;
+          Serial.println(key.c_str());
+
+          if (Routes[value].arrivalCount < MAX_ARRIVALS) {
+            Routes[value].arrivals[Routes[value].arrivalCount] = parseArrival(countdown);
+            Routes[value].arrivalCount += 1;
+          } else {
+            Serial.print("Route is full, skipping arrival for: ");
+            Serial.println(route);
+          }
 
 
         } else {
-          if (map_index < 12) {
-            busIndexMap.insert({ route, map_index });
-            Routes[map_index].lineName = String(route);
-            Routes[map_index].arrivals[0] = line;
-            Routes[map_index].arrivalCount = 1;
-            map_index += 1;
+          int slot = busIndexMap.size();
+          if (slot < MAX_ROUTES) {
+            busIndexMap.insert({ key, slot });
+            Routes[slot].route = String(route);
+            Routes[slot].destination = String(destination);
+            Routes[slot].direction = String(direction);
+            Routes[slot].arrivals[0] = parseArrival(countdown);
+            Routes[slot].arrivalCount = 1;
           } else {
             Serial.println("Routes array full");
           }
         }
       }
+
+      return true;
     }
   } else {
     Serial.print("Error:");
     Serial.println(httpCode);
+
+
+    Serial.println("Previous call data will be used if stored");
+    return false;
   }
 }
 
-
-
-
-
-void loop() {
-
-  getArrivalTimes(RetrievedRoutes);
-
+void drawArrivals() {
   display.init(115200, false, 2, false);  // false: not the first boot, avoid extra flash
   display.setRotation(0);
   display.setFont(&FreeMonoBold9pt7b);
   display.setTextColor(GxEPD_BLACK);
-
-  int16_t tbx, tby;
-  uint16_t tbw, tbh;
 
   display.setFullWindow();
   display.firstPage();
@@ -180,22 +272,82 @@ void loop() {
     display.fillScreen(GxEPD_WHITE);
     uint16_t y = 15;
 
-    for (RouteTracker route : RetrievedRoutes) {
-      for (int i = 0; i < route.arrivalCount; i++) {
-        Serial.println(route.arrivals[i]);
-        display.getTextBounds(route.arrivals[i], 0, 0, &tbx, &tby, &tbw, &tbh);
-        uint16_t x = ((display.width() - tbw) / 2) - tbx;
+    for (const RouteGroup& group : RetrievedRoutes) {
+      if (group.arrivalCount == 0) continue;
 
-        display.setCursor(x, y);
-        display.print(route.arrivals[i]);
-        y += 15;
+      char line[40];
+      int len = snprintf(line, sizeof(line), "%-3.3s %-16.16s %4.1s",
+                         group.route.c_str(),
+                         group.destination.c_str(),
+                         group.direction.c_str());
+
+      for (int i = 0; i < group.arrivalCount; i++) {
+        if (len >= ((int)sizeof(line))) break;
+
+        const Arrival& a = group.arrivals[i];
+        const char* sep = (i > 0) ? "," : "   ";
+
+        if (a.isDue) {
+          len += snprintf(line + len, sizeof(line) - len, "%sDUE", sep);
+        } else {
+          len += snprintf(line + len, sizeof(line) - len, "%s%d", sep, a.countdown);
+        }
       }
+
+      Serial.println(line);
+      display.setCursor(5, y);
+      display.print(line);
+      y += 20;
     }
 
   } while (display.nextPage());
 
   display.hibernate();
-  busIndexMap.clear();
-  map_index = 0;
-  delay(180000);
+}
+
+bool resetHeld() {
+  if(digitalRead(BOOT_PIN) == HIGH) return false;
+
+  unsigned long start = millis();
+
+  while (digitalRead(BOOT_PIN) == LOW && millis() - start < RESET_HOLD_MS) {
+    delay(10);
+  }
+
+  return digitalRead(BOOT_PIN) == LOW;
+}
+
+void factoryReset() {
+  prefs.begin("tracker", false);
+  prefs.clear();
+  prefs.end();
+  Serial.println("Settings reset. Release BOOT to restart");
+  while (digitalRead(BOOT_PIN) == LOW) delay(10);
+  ESP.restart();
+}
+
+void loop() {
+  bool waitMet = millis() - lastRefreshMs >= nextWaitMs;
+
+  if(resetHeld()) factoryReset();
+
+  if (waitMet) {
+    if (!ensureWiFi(10000)) {
+      Serial.println("Offline, skipping fetch");
+      lastRefreshMs = millis();
+      nextWaitMs = RETRY_INTERVAL_MS + TIMEOUT_INTERVAL_MS;
+    } else if (!getArrivalTimes(RetrievedRoutes)) {
+      Serial.println("Fetch failed. Keeping current screen");
+      lastRefreshMs = millis();
+      nextWaitMs = RETRY_INTERVAL_MS;
+    } else {
+      drawArrivals();
+      lastRefreshMs = millis();
+      nextWaitMs = settings.refreshSec * 1000UL;
+    }
+
+    Serial.print("Will check again in ");
+    Serial.print(nextWaitMs/1000UL);
+    Serial.println(" s");
+  }
 }

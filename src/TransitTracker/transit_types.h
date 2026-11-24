@@ -1,11 +1,21 @@
 #ifndef TRANSIT_TYPES_H
-#define TRANSIT_TYPE_H
+#define TRANSIT_TYPES_H
 
 #include <Arduino.h>
 
-struct RouteTracker {
-  String lineName;
-  String arrivals[10]; // Make and arrival struct direction, name, etc
+constexpr int MAX_ARRIVALS = 3;
+constexpr int MAX_ROUTES = 12;
+
+struct Arrival {
+  bool isDue = false; // If isDue is true, countdown is 0.
+  int countdown = 0;
+};
+
+struct RouteGroup {
+  String route;
+  String direction;
+  String destination;
+  Arrival arrivals[MAX_ARRIVALS];
   int arrivalCount = 0;
 };
 
