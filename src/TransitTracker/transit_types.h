@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-constexpr int MAX_ARRIVALS = 3;
+constexpr int MAX_ARRIVALS = 2;
 constexpr int MAX_ROUTES = 12;
 
 struct Arrival {
