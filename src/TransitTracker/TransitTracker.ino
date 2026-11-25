@@ -12,6 +12,7 @@
 
 #include "config.h"
 #include "transit_types.h"
+#include "wifi_manager.h"
 
 // --- DISPLAY HARDWARE CONSTRUCTOR MAP ---
 // Maps to the pin layout: CS=5, DC=17, RST=16, BUSY=4
@@ -44,21 +45,6 @@ constexpr uint32_t MAX_REFRESH_SEC = 900;
 //Reset Button Global Vars
 constexpr unsigned long RESET_HOLD_MS = 3000UL;
 
-bool ensureWiFi(unsigned long timeoutMs) {
-  if (WiFi.status() == WL_CONNECTED) return true;
-  if (strlen(settings.ssid.c_str()) == 0 || strlen(settings.password.c_str()) == 0) return false;
-
-  WiFi.begin(settings.ssid, settings.password);
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-    delay(250);
-    Serial.print(".");
-    Serial.println();
-  }
-
-  return WiFi.status() == WL_CONNECTED;
-}
-
 
 void setup() {
   Serial.begin(115200);
@@ -83,7 +69,7 @@ void setup() {
 
   display.hibernate();  // Puts the display into deep sleep to protect its elements
 
-  if (!ensureWiFi(15000)) {
+  if (!ensureWiFi(settings.ssid.c_str(), settings.password.c_str(), 15000)) {
     Serial.println("Offline Mode. Will try to reconnect in loop");
   } else {
     Serial.println("WiFi connected.");
@@ -332,7 +318,7 @@ void loop() {
   if(resetHeld()) factoryReset();
 
   if (waitMet) {
-    if (!ensureWiFi(10000)) {
+    if (!ensureWiFi(settings.ssid.c_str(), settings.password.c_str(), 10000)) {
       Serial.println("Offline, skipping fetch");
       lastRefreshMs = millis();
       nextWaitMs = RETRY_INTERVAL_MS + TIMEOUT_INTERVAL_MS;
