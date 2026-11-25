@@ -4,15 +4,14 @@
 #include <ArduinoJson.h>
 #include <unordered_map>
 #include <string>
-#include <Preferences.h>
 
 //Eink Libs
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeMonoBold9pt7b.h>
 
-#include "config.h"
 #include "transit_types.h"
 #include "wifi_manager.h"
+#include "settings.h"
 
 // --- DISPLAY HARDWARE CONSTRUCTOR MAP ---
 // Maps to the pin layout: CS=5, DC=17, RST=16, BUSY=4
@@ -27,24 +26,7 @@ constexpr unsigned long TIMEOUT_INTERVAL_MS = 10000UL;
 unsigned long lastRefreshMs = 0;
 unsigned long nextWaitMs = 0;
 
-//NVS Global Vars
-Preferences prefs;
-
-struct Settings {
-  String ssid;
-  String password;
-  String stopIds;
-  uint32_t refreshSec;
-};
-
 Settings settings;
-constexpr uint32_t DEFAULT_REFRESH_SEC = 180;
-constexpr uint32_t MIN_REFRESH_SEC = 60;
-constexpr uint32_t MAX_REFRESH_SEC = 900;
-
-//Reset Button Global Vars
-constexpr unsigned long RESET_HOLD_MS = 3000UL;
-
 
 void setup() {
   Serial.begin(115200);
@@ -53,7 +35,7 @@ void setup() {
   delay(1000);
 
   //Load Settings
-  loadSettings();
+  settings = loadSettings();
 
 
   // We start by connecting to a WiFi network
@@ -77,37 +59,6 @@ void setup() {
     Serial.println(WiFi.localIP());
   }
 }
-
-void loadSettings(){
-  //Open the Namespace/storage area
-  bool opened = prefs.begin("tracker", true);
-  if(!opened){
-    Serial.println("No saved settings yet, using config.h defaults");
-  }
-
-  //default values to use if nothing is saved
-  settings.ssid = prefs.getString("ssid", ssid);
-  settings.password = prefs.getString("password", password);
-  settings.stopIds = prefs.getString("stops", stopid);
-  settings.refreshSec = prefs.getUInt("refresh", DEFAULT_REFRESH_SEC);
-
-  //forced reset of refresh sec
-  settings.refreshSec = constrain(settings.refreshSec, MIN_REFRESH_SEC, MAX_REFRESH_SEC);
-
-  //closing namespace
-  prefs.end();
-
-  //print values
-  Serial.print("Settings: ssid=");
-  Serial.print(settings.ssid);
-  Serial.print(" stops=");
-  Serial.print(settings.stopIds);
-  Serial.print(" refresh=");
-  Serial.print(settings.refreshSec);
-  Serial.println("s");
-
-}
-
 
 void bootUpText() {
   char line[40];
@@ -143,13 +94,12 @@ Arrival parseArrival(const char* countdown) {
   return a;
 }
 
-
 bool getArrivalTimes(RouteGroup Routes[]) {
   HTTPClient http;
 
   //Use Mozila root CA Bundle to verify CTA Bus Tracker API link. ESP32 core 4 refuses connection with out this.
   http.useBuiltinCACertBundle();
-  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + busAPIKey + "&stpid=" + settings.stopIds + "&format=json");
+  http.begin(String("https://www.ctabustracker.com/bustime/api/v3/getpredictions?key=") + settings.busAPIKey + "&stpid=" + settings.stopIds + "&format=json");
 
   int httpCode = http.GET();
   Serial.println(httpCode);
@@ -291,31 +241,10 @@ void drawArrivals() {
   display.hibernate();
 }
 
-bool resetHeld() {
-  if(digitalRead(BOOT_PIN) == HIGH) return false;
-
-  unsigned long start = millis();
-
-  while (digitalRead(BOOT_PIN) == LOW && millis() - start < RESET_HOLD_MS) {
-    delay(10);
-  }
-
-  return digitalRead(BOOT_PIN) == LOW;
-}
-
-void factoryReset() {
-  prefs.begin("tracker", false);
-  prefs.clear();
-  prefs.end();
-  Serial.println("Settings reset. Release BOOT to restart");
-  while (digitalRead(BOOT_PIN) == LOW) delay(10);
-  ESP.restart();
-}
-
 void loop() {
   bool waitMet = millis() - lastRefreshMs >= nextWaitMs;
 
-  if(resetHeld()) factoryReset();
+  if (resetHeld()) factoryReset();
 
   if (waitMet) {
     if (!ensureWiFi(settings.ssid.c_str(), settings.password.c_str(), 10000)) {
@@ -333,7 +262,7 @@ void loop() {
     }
 
     Serial.print("Will check again in ");
-    Serial.print(nextWaitMs/1000UL);
+    Serial.print(nextWaitMs / 1000UL);
     Serial.println(" s");
   }
 }
